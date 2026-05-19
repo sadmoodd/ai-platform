@@ -1,0 +1,29 @@
+FROM php:8.3-fpm
+
+RUN apt-get update && apt-get install -y \
+    libzip-dev unzip libxml2-dev \
+    && docker-php-ext-install zip xml
+
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www
+
+COPY . .
+
+RUN cp .env.example .env
+
+RUN composer install --no-dev --optimize-autoloader --no-interaction || \
+    composer install --optimize-autoloader --no-interaction
+
+
+
+RUN echo '#!/bin/sh\n\
+chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache /var/www/database\n\
+chmod -R 775 /var/www/storage /var/www/bootstrap/cache /var/www/database\n\
+php artisan key:generate --force\n\
+php artisan migrate --force\n\
+exec php artisan serve --host=0.0.0.0 --port=8000' > /entrypoint.sh \
+    && chmod +x /entrypoint.sh
+
+EXPOSE 8000
+CMD ["/entrypoint.sh"]

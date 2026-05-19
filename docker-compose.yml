@@ -1,0 +1,160 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "5959:443"
+      - "5969:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - whisper-web
+      - whisper-api
+      - parser-web
+      - parser-api
+      - ai-researcher
+    networks:
+      - ai-network
+
+
+#  ollama:
+#    image: ollama/ollama:latest
+#    container_name: ai-ollama
+#    ports:
+#      - "11434:11434"
+#    volumes:
+#      - ./data/ollama:/root/.ollama
+#    environment:
+#      - OLLAMA_HOST=0.0.0.0
+#      - OLLAMA_KEEP_ALIVE=24h
+#      - OLLAMA_NUM_PARALLEL=4
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              count: 3
+#              capabilities: [gpu]
+#    networks:
+#      - ai-network
+#    restart: unless-stopped
+
+  whisper-api:
+    build:
+      context: ./whisper-service-php
+      dockerfile: ../Dockerfile.python
+    working_dir: /app
+    command: uvicorn app:app --host 0.0.0.0 --port 3534
+    
+    environment:
+      - PYTHONUNBUFFERED=1
+      - BASE_URL=http://ollama:11434/api/chat
+      - USER=ollama
+      - USER_PWD=OllamaPWD123
+      - API_KEY=T2xsYW1hUFdEMTIz
+      - MODEL_NAME=deepseek-r1:latest
+      - YONOTE_API_URL=https://app.yonote.ru/api
+      - YONOTE_COLLECTION_ID=
+      - SECRET_KEY=WhisperYonoteSecretKey2026!@#$
+    networks:
+      - ai-network
+
+  whisper-web:
+    build:
+      context: ./whisper-service-php/backend
+      dockerfile: ../../Dockerfile.laravel
+    networks:
+      - ai-network
+
+  parser-api:
+    build:
+      context: ./UniParser
+      dockerfile: ../Dockerfile.python
+    working_dir: /app/src
+    command: python api_main.py
+    
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MODEL_NAME=deepseek-r1:latest
+      - BASE_URL=http://ollama:11434/api/chat
+      - USERNAME=ollama
+      - PASSWD=OllamaPWD123
+    networks:
+      - ai-network
+
+  parser-web:
+    build:
+      context: ./UniParser/backend
+      dockerfile: ../../Dockerfile.laravel
+    volumes:
+      - ./UniParser/shared_uploads:/var/www/shared_uploads
+      - ./UniParser/shared_outputs:/var/www/shared_outputs
+    networks:
+      - ai-network
+
+  ai-researcher:
+    build:
+      context: ./ai-researcher
+      dockerfile: ../Dockerfile.python
+    working_dir: /app/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FLASK_SECRET_KEY=1@#1!WhisperAiResearcherSecretKey2026!@#$
+      - FLASK_PORT=1213
+      - FLASK_DEBUG=false
+      - WHISPER_API_URL=http://whisper-api:3534/whisper
+      - WHISPER_TRANSCRIBE_ENDPOINT=/api/transcribe
+      - WHISPER_HEALTH_ENDPOINT=/api/health
+      - WHISPER_TIMEOUT=30
+      - SEARXNG_INSTANCE=http://searxng:8080
+      - SEARXNG_SEARCH_ENDPOINT=/search
+      - SEARXNG_TIMEOUT=10
+      - CACHE_ENABLED=true
+      - CACHE_TTL_SECONDS=3600
+      - REDIS_HOST=redis
+      - AUDIO_UPLOAD_DIR=data/audio
+      - BLACKLIST_FILE=config/blacklist_domains.txt
+      - BASE_URL=http://ollama:11434/api/chat
+      - USER=ollama
+      - USER_PWD=OllamaPWD123
+      - MODEL_NAME=deepseek-r1:latest
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=sema88moiseev@gmail.com
+      - SMTP_PASSWORD=zsnn dyyp anhd ehqb
+      - SMTP_FROM_EMAIL=sema88moiseev@gmail.com
+      - SMTP_FROM_NAME=AI Researcher
+    networks:
+      - ai-network
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - ai-network
+
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./searxng/core-config:/etc/searxng:ro
+    environment:
+      - SEARXNG_SECRET_KEY=change-me
+    networks:
+      - ai-network
+
+networks:
+  ai-network:
+    driver: bridge
